@@ -1,61 +1,62 @@
 <!doctype html><meta charset="utf-8">
-<title>SG Rain 50km (clean)</title>
+<title>SG Rain 50 km snapshot</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Hard no-cache headers for most clients -->
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <style>
+  :root{--w:853px;--h:479px;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;}
   html,body{margin:0;background:#f4f4f4}
-  #wrap{display:flex;justify-content:center;align-items:center;min-height:100vh}
-  #map{position:relative;width:853px;height:479px;box-shadow:0 4px 20px rgba(0,0,0,0.12);background:#e6e6e6}
-  #map img{position:absolute;inset:0;width:853px;height:479px;image-rendering:auto}
-  #ts{position:absolute;bottom:8px;right:8px;font:14px system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
-      background:#fff9;padding:2px 6px;border-radius:4px}
-  #badge{position:absolute;top:8px;left:8px;font:12px system-ui;background:#fff9;padding:2px 6px;border-radius:4px}
+  #wrap{display:flex;flex-direction:column;align-items:center;gap:.5rem;min-height:100vh;justify-content:center}
+  #hdr{font-size:1.6rem;font-weight:600;letter-spacing:.02em;text-align:center}
+  #map{position:relative;width:var(--w);height:var(--h);box-shadow:0 4px 20px rgba(0,0,0,.12);background:#e6e6e6}
+  #map img{position:absolute;inset:0;width:var(--w);height:var(--h);image-rendering:auto}
+  #badge{position:absolute;top:8px;left:8px;background:#fff9;padding:2px 6px;border-radius:4px;font-size:.75rem}
+  #ts{position:absolute;bottom:8px;right:8px;background:#fff9;padding:2px 6px;border-radius:4px;font-size:.8rem}
+  #rotate{position:absolute;bottom:8px;left:8px;background:#fff9;padding:2px 6px;border-radius:4px;font-size:.8rem;font-style:italic}
+  #foot{font-size:.9rem;margin-top:.3rem;color:#444}
 </style>
 <div id="wrap">
+  <div id="hdr">DATE PLACEHOLDER</div>
   <div id="map">
     <img id="base" src="https://www.nea.gov.sg/assets/images/map/base-853.png" alt="Base map">
     <img id="overlay" alt="Rain overlay">
-    <div id="badge">Weather.gov.sg – Rain area 50km</div>
+    <div id="badge">Weather.gov.sg – Rain area&nbsp;50 km</div>
+    <div id="rotate"></div>
     <div id="ts"></div>
   </div>
+  <div id="foot"></div>
 </div>
 <script>
-  const z = n => String(n).padStart(2,'0');
-  const build = (d) => {
-    const y=d.getFullYear(), m=z(d.getMonth()+1), day=z(d.getDate());
-    const hh=z(d.getHours()), mm=z(d.getMinutes());
+  const z=n=>String(n).padStart(2,'0');
+  const phrases=["Weather Report","Weather Update","Rainfall Chart","Rainfall Map","SG Rain Map"];
+  function floorTo5(d){const c=new Date(d);c.setMinutes(c.getMinutes()-c.getMinutes()%5,0,0);return c;}
+  function formatDate(d){return d.toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric',timeZone:'Asia/Singapore'});}
+  function formatTime(d){return d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit',timeZone:'Asia/Singapore'})+" SGT";}
+  function overlayURL(d){
+    const y=d.getFullYear(),m=z(d.getMonth()+1),day=z(d.getDate());
+    const hh=z(d.getHours()),mm=z(d.getMinutes());
     return `https://www.weather.gov.sg/files/rainarea/50km/v2/dpsri_70km_${y}${m}${day}${hh}${mm}0000dBR.dpsri.png`;
-  };
-  function floorTo5Min(d){
-    const copy = new Date(d);
-    copy.setMinutes(copy.getMinutes() - (copy.getMinutes()%5), 0, 0);
-    return copy;
   }
-  function formatSG(d){
-    const y=d.getFullYear(), m=z(d.getMonth()+1), day=z(d.getDate());
-    const hh=z(d.getHours()), mm=z(d.getMinutes());
-    return `${y}-${m}-${day} ${hh}:${mm} SGT`;
-  }
+  function pickPhrase(idx){return phrases[idx%phrases.length];}
+
   function update(){
-    const nowSG = new Date(new Date().toLocaleString('en-US',{timeZone:'Asia/Singapore'}));
-    let slot = floorTo5Min(nowSG);
-    const overlay = document.getElementById('overlay');
-    const ts = document.getElementById('ts');
-    let attempts = 0;
-    function tryLoad(){
-      overlay.src = build(slot) + `#${Date.now()}`; // cache-bust
-      overlay.onload = () => { ts.textContent = formatSG(slot); };
-      overlay.onerror = () => {
-        if (attempts < 6) { // step back up to 30 minutes if needed
-          attempts++;
-          slot = new Date(slot.getTime() - 5*60*1000);
-          tryLoad();
-        } else {
-          ts.textContent = "No recent image available";
-        }
-      };
-    }
-    tryLoad();
+    const nowSG=new Date(new Date().toLocaleString('en-US',{timeZone:'Asia/Singapore'}));
+    let slot=floorTo5(nowSG);
+    document.getElementById('hdr').textContent=formatDate(nowSG);
+    document.getElementById('foot').textContent="Last refresh: "+formatTime(nowSG);
+    document.getElementById('rotate').textContent=pickPhrase(slot.getMinutes()/5);
+    const ov=document.getElementById('overlay');
+    // cache‑bust with ?v=timestamp so the HTTP request itself is unique
+    ov.src=overlayURL(slot)+"?v="+Date.now();
+    // retry fallback for missing frame
+    let tries=0;
+    ov.onerror=()=>{
+      if(tries<6){tries++;slot=new Date(slot.getTime()-5*60*1000);ov.src=overlayURL(slot)+"?v="+Date.now();}
+    };
+    document.getElementById('ts').textContent=formatTime(slot);
   }
   update();
-  setInterval(update, 300000); // refresh every 5 minutes
+  setInterval(update,300000); // 5‑minute refresh
 </script>
