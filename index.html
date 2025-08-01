@@ -14,6 +14,7 @@
   #badge{position:absolute;top:8px;left:8px;background:#fff9;padding:2px 6px;border-radius:4px;font-size:.75rem}
   #ts{position:absolute;bottom:8px;right:8px;background:#fff9;padding:2px 6px;border-radius:4px;font-size:.8rem}
   #rotate{position:absolute;bottom:8px;left:8px;background:#fff9;padding:2px 6px;border-radius:4px;font-size:.8rem;font-style:italic}
+  #wiggle{width:100%;background:#f4f4f4;} /* height is set dynamically to 0‑3 px */
 </style>
 <div id="wrap">
   <div id="time">TIME PLACEHOLDER</div>
@@ -24,39 +25,42 @@
     <div id="rotate"></div>
     <div id="ts"></div>
   </div>
+  <div id="wiggle"></div>
 </div>
 <script>
   const z = n => String(n).padStart(2,'0');
   const phrases = ["Weather Report","Weather Update","Rainfall Chart","Rainfall Map","SG Rain Map"];
   function floorTo5(d){ const c=new Date(d); c.setMinutes(c.getMinutes()-c.getMinutes()%5,0,0); return c; }
-  function formatTime(d){ return d.getHours().toString().padStart(2,'0') + ':' + d.getMinutes().toString().padStart(2,'0') + ' SGT'; }
+  function fmt(d){ return d.getHours().toString().padStart(2,'0') + ':' + d.getMinutes().toString().padStart(2,'0') + ' SGT'; }
   function overlayURL(d){
       const y=d.getFullYear(), m=z(d.getMonth()+1), day=z(d.getDate());
       const hh=z(d.getHours()), mm=z(d.getMinutes());
       return `https://www.weather.gov.sg/files/rainarea/50km/v2/dpsri_70km_${y}${m}${day}${hh}${mm}0000dBR.dpsri.png`;
   }
   function pickPhrase(idx){ return phrases[idx%phrases.length]; }
-  function getNowSG(){
-      const nowUTC = new Date();
-      const minsOffset = nowUTC.getTimezoneOffset(); // positive west of UTC
-      return new Date(nowUTC.getTime() + (8*60 + minsOffset)*60000);
-  }
+  function nowSG(){ return new Date(new Date().toLocaleString('en-US',{timeZone:'Asia/Singapore'})); }
   function update(){
-      const nowSG = getNowSG();
-      let slot = floorTo5(new Date(nowSG));
-      document.getElementById('time').textContent = "Last refresh: " + formatTime(nowSG);
-      document.getElementById('rotate').textContent = pickPhrase((slot.getMinutes()/5)|0);
+      const now = nowSG();
+      let slot = floorTo5(new Date(now));
+      document.getElementById('time').textContent = "Last refresh: " + fmt(now);
+      document.getElementById('rotate').textContent = pickPhrase(Math.floor(slot.getMinutes()/5));
+      
+      /* --- DYNAMIC WIGGLE: height cycles 1‑3 px to guarantee bitmap diff --- */
+      const wiggle = document.getElementById('wiggle');
+      wiggle.style.height = ((slot.getMinutes()/5)%3 + 1)+"px";
+      
+      /* Load radar overlay with fallback of 1h */
       const overlay = document.getElementById('overlay');
-      overlay.src = overlayURL(slot) + "?v=" + Date.now();
-      let tries = 0;
-      overlay.onerror = () => {
-          if (tries < 6){
-              tries++;
-              slot = new Date(slot.getTime() - 5*60000);
-              overlay.src = overlayURL(slot) + "?v=" + Date.now();
-          }
+      let retries = 0;
+      function load(){
+        overlay.src = overlayURL(slot)+"?v="+Date.now();
+      }
+      overlay.onload = ()=>{ document.getElementById('ts').textContent = fmt(slot); };
+      overlay.onerror = ()=>{
+        if(++retries < 12){ slot = new Date(slot.getTime() - 5*60000); load(); }
+        else{ document.getElementById('ts').textContent = "No recent image"; }
       };
-      document.getElementById('ts').textContent = formatTime(slot);
+      load();
   }
   update();
   setInterval(update, 300000);
