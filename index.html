@@ -26,30 +26,38 @@
   </div>
 </div>
 <script>
-  const z=n=>String(n).padStart(2,'0');
-  const phrases=["Weather Report","Weather Update","Rainfall Chart","Rainfall Map","SG Rain Map"];
-  function floorTo5(d){const c=new Date(d);c.setMinutes(c.getMinutes()-c.getMinutes()%5,0,0);return c;}
-  function formatTime(d){return d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit',timeZone:'Asia/Singapore'})+" SGT";}
+  const z = n => String(n).padStart(2,'0');
+  const phrases = ["Weather Report","Weather Update","Rainfall Chart","Rainfall Map","SG Rain Map"];
+  function floorTo5(d){ const c=new Date(d); c.setMinutes(c.getMinutes()-c.getMinutes()%5,0,0); return c; }
+  function formatTime(d){ return d.getHours().toString().padStart(2,'0') + ':' + d.getMinutes().toString().padStart(2,'0') + ' SGT'; }
   function overlayURL(d){
-    const y=d.getFullYear(),m=z(d.getMonth()+1),day=z(d.getDate());
-    const hh=z(d.getHours()),mm=z(d.getMinutes());
-    return `https://www.weather.gov.sg/files/rainarea/50km/v2/dpsri_70km_${y}${m}${day}${hh}${mm}0000dBR.dpsri.png`;
+      const y=d.getFullYear(), m=z(d.getMonth()+1), day=z(d.getDate());
+      const hh=z(d.getHours()), mm=z(d.getMinutes());
+      return `https://www.weather.gov.sg/files/rainarea/50km/v2/dpsri_70km_${y}${m}${day}${hh}${mm}0000dBR.dpsri.png`;
   }
-  function pickPhrase(idx){return phrases[idx%phrases.length];}
-
+  function pickPhrase(idx){ return phrases[idx%phrases.length]; }
+  function getNowSG(){
+      const nowUTC = new Date();
+      const minsOffset = nowUTC.getTimezoneOffset(); // positive west of UTC
+      return new Date(nowUTC.getTime() + (8*60 + minsOffset)*60000);
+  }
   function update(){
-    const nowSG=new Date(new Date().toLocaleString('en-US',{timeZone:'Asia/Singapore'}));
-    let slot=floorTo5(nowSG);
-    document.getElementById('time').textContent="Last refresh: "+formatTime(nowSG);
-    document.getElementById('rotate').textContent=pickPhrase(slot.getMinutes()/5);
-    const ov=document.getElementById('overlay');
-    ov.src=overlayURL(slot)+"?v="+Date.now();
-    let tries=0;
-    ov.onerror=()=>{
-      if(tries<6){tries++;slot=new Date(slot.getTime()-5*60*1000);ov.src=overlayURL(slot)+"?v="+Date.now();}
-    };
-    document.getElementById('ts').textContent=formatTime(slot);
+      const nowSG = getNowSG();
+      let slot = floorTo5(new Date(nowSG));
+      document.getElementById('time').textContent = "Last refresh: " + formatTime(nowSG);
+      document.getElementById('rotate').textContent = pickPhrase((slot.getMinutes()/5)|0);
+      const overlay = document.getElementById('overlay');
+      overlay.src = overlayURL(slot) + "?v=" + Date.now();
+      let tries = 0;
+      overlay.onerror = () => {
+          if (tries < 6){
+              tries++;
+              slot = new Date(slot.getTime() - 5*60000);
+              overlay.src = overlayURL(slot) + "?v=" + Date.now();
+          }
+      };
+      document.getElementById('ts').textContent = formatTime(slot);
   }
   update();
-  setInterval(update,300000);
+  setInterval(update, 300000);
 </script>
