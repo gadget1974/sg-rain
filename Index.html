@@ -1,0 +1,92 @@
+<!doctype html><meta charset="utf-8">
+<title>SG Rain 50 km snapshot</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<style>
+  :root{--w:853px;--h:479px;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;}
+  html,body{margin:0;background:#f4f4f4}
+  #wrap{display:flex;flex-direction:column;align-items:center;gap:.5rem;min-height:100vh;justify-content:center}
+  #hdr{width:var(--w);height:110px;display:block;border:0;box-shadow:0 2px 12px rgba(0,0,0,.10)}
+  #map{position:relative;width:var(--w);height:var(--h);box-shadow:0 4px 20px rgba(0,0,0,.12);background:#e6e6e6}
+  #map img{position:absolute;inset:0;width:var(--w);height:var(--h);image-rendering:auto}
+  #badge{position:absolute;top:8px;left:8px;background:#fff9;padding:2px 6px;border-radius:4px;font-size:.75rem}
+  #ts{position:absolute;bottom:8px;right:8px;background:#fff9;padding:2px 6px;border-radius:4px;font-size:.8rem}
+  #rotate{position:absolute;bottom:8px;left:8px;background:#fff9;padding:2px 6px;border-radius:4px;font-size:.8rem;font-style:italic}
+</style>
+<div id="wrap">
+  <canvas id="hdr" width="853" height="110" aria-hidden="true"></canvas>
+  <div id="map">
+    <img id="base" src="https://www.nea.gov.sg/assets/images/map/base-853.png" alt="Base map">
+    <img id="overlay" alt="Rain overlay">
+    <div id="badge">Weather.gov.sg – Rain area&nbsp;50 km</div>
+    <div id="rotate"></div>
+    <div id="ts"></div>
+  </div>
+</div>
+<script>
+  const z = n => String(n).padStart(2,'0');
+  const phrases = ["Weather Report","Weather Update","Rainfall Chart","Rainfall Map","SG Rain Map"];
+  function floorTo5(d){ const c=new Date(d); c.setMinutes(c.getMinutes()-c.getMinutes()%5,0,0); return c; }
+  function fmt(d){ return d.getHours().toString().padStart(2,'0') + ':' + d.getMinutes().toString().padStart(2,'0') + ' SGT'; }
+  function overlayURL(d){
+      const y=d.getFullYear(), m=z(d.getMonth()+1), day=z(d.getDate());
+      const hh=z(d.getHours()), mm=z(d.getMinutes());
+      return `https://www.weather.gov.sg/files/rainarea/50km/v2/dpsri_70km_${y}${m}${day}${hh}${mm}0000dBR.dpsri.png`;
+  }
+  function pickPhrase(idx){ return phrases[idx%phrases.length]; }
+  function nowSG(){ return new Date(new Date().toLocaleString('en-US',{timeZone:'Asia/Singapore'})); }
+
+  function lcg(seed){ let s = seed|0; return () => (s = (s*1664525 + 1013904223)|0, (s>>>0)/4294967296); }
+
+  function drawHeader(slot, now){
+    const cv = document.getElementById('hdr');
+    const g = cv.getContext('2d');
+    const invert = ((slot.getMinutes()/5)|0) % 2;
+    g.fillStyle = invert ? '#111' : '#eee';
+    g.fillRect(0,0,cv.width,cv.height);
+
+    const rng = lcg(+slot);
+    const cols = 20, rows = 6;
+    const bw = Math.ceil(cv.width/cols), bh = Math.ceil(cv.height/rows);
+    for(let r=0;r<rows;r++){
+      for(let c=0;c<cols;c++){
+        if(rng() > 0.5){
+          g.fillStyle = invert ? '#eee' : '#111';
+          g.fillRect(c*bw, r*bh, bw, bh);
+        }
+      }
+    }
+
+    g.font = '700 40px system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif';
+    g.textBaseline = 'middle';
+    g.textAlign = 'left';
+    g.fillStyle = invert ? '#eee' : '#111';
+    g.fillText('Last refresh: ' + fmt(now), 16, cv.height/2);
+
+    g.textAlign = 'right';
+    g.font = '600 18px system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif';
+    g.fillText(pickPhrase((slot.getMinutes()/5)|0), cv.width-16, cv.height/2);
+  }
+
+  function update(){
+      const now = nowSG();
+      let slot = floorTo5(new Date(now));
+      drawHeader(slot, now);
+
+      document.getElementById('rotate').textContent = pickPhrase(Math.floor(slot.getMinutes()/5));
+      const overlay = document.getElementById('overlay');
+
+      let retries = 0;
+      function load(){ overlay.src = overlayURL(slot)+"?v="+Date.now(); }
+      overlay.onload = ()=>{ document.getElementById('ts').textContent = fmt(slot); };
+      overlay.onerror = ()=>{
+        if(++retries < 12){ slot = new Date(slot.getTime() - 5*60000); load(); }
+        else{ document.getElementById('ts').textContent = "No recent image"; }
+      };
+      load();
+  }
+  update();
+  setInterval(update, 300000);
+</script>
