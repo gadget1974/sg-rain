@@ -1,31 +1,27 @@
 <!doctype html><meta charset="utf-8">
-<title>SG Rain 50 km — subtle overlay</title>
+<title>SG Rain 50 km — invert per cycle</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
 <style>
-  :root{
-    --w:853px; --h:479px;
-    --font: system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
-  }
+  :root{ --w:853px; --h:479px; --font: system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; }
   html,body{margin:0;background:#f4f4f4;font-family:var(--font)}
   #wrap{display:flex;flex-direction:column;align-items:center;gap:.5rem;min-height:100vh;justify-content:center}
-  #time{font-size:1rem;font-weight:500;color:#333}
+  #status{font-size:1rem;font-weight:500;color:#333}
   #map{position:relative;width:var(--w);height:var(--h);box-shadow:0 4px 20px rgba(0,0,0,.12);background:#e6e6e6;overflow:hidden}
   #map img{position:absolute;inset:0;width:var(--w);height:var(--h);image-rendering:auto}
   #badge{position:absolute;top:8px;left:8px;background:#fff9;padding:2px 6px;border-radius:4px;font-size:.75rem}
   #ts{position:absolute;bottom:8px;right:8px;background:#fff9;padding:2px 6px;border-radius:4px;font-size:.8rem}
   #rotate{position:absolute;bottom:8px;left:8px;background:#fff9;padding:2px 6px;border-radius:4px;font-size:.8rem;font-style:italic}
-  /* The subtle pattern veil: faint but covers the full map area to exceed a %‑change threshold */
-  #veil{position:absolute;inset:0;pointer-events:none;opacity:.05} /* adjust at runtime via URL param */
+  /* Negative mode flips all pixels within the map area for maximum diff */
+  .neg{ filter: invert(1); }
 </style>
 <div id="wrap">
-  <div id="time">Last refresh: …</div>
+  <div id="status">Last refresh: …</div>
   <div id="map">
     <img id="base" src="https://www.nea.gov.sg/assets/images/map/base-853.png" alt="Base map">
     <img id="overlay" alt="Rain overlay">
-    <canvas id="veil" width="853" height="479" aria-hidden="true"></canvas>
     <div id="badge">Weather.gov.sg – Rain area&nbsp;50 km</div>
     <div id="rotate"></div>
     <div id="ts"></div>
@@ -35,9 +31,9 @@
   /* ---------- helpers ---------- */
   const z=n=>String(n).padStart(2,'0');
   const phrases=["Weather Report","Weather Update","Rainfall Chart","Rainfall Map","SG Rain Map"];
-  const qs=new URLSearchParams(location.search);
-  const INTENSITY = Math.max(0.02, Math.min(0.12, parseFloat(qs.get('intensity')) || 0.05)); // 2–12%
-  const CELLS = Math.max(8, Math.min(64, parseInt(qs.get('cells')||28,10))); // grid density
+  const qs = new URLSearchParams(location.search);
+  const INVERT_MODE = (qs.get('invert')||'toggle').toLowerCase(); // 'toggle' (default) | 'always' | 'never'
+  const DELAY = Math.max(0, Math.min(5000, parseInt(qs.get('delay')||1500,10))); // ms delay before toggling & status write
 
   function floorTo5(d){ const c=new Date(d); c.setMinutes(c.getMinutes()-c.getMinutes()%5,0,0); return c; }
   function fmtSG(d){ return d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit',timeZone:'Asia/Singapore'})+' SGT'; }
@@ -47,51 +43,47 @@
   }
   function pickPhrase(idx){ return phrases[idx%phrases.length]; }
   function nowSG(){ return new Date(new Date().toLocaleString('en-US',{timeZone:'Asia/Singapore'})); }
-  function lcg(seed){ let s = seed|0; return () => (s = (s*1664525 + 1013904223)|0, (s>>>0)/4294967296); }
+  function cycleIndex(d){ return Math.floor(d.getTime() / (5*60*1000)); } // increments every slot
 
-  /* ---------- subtle pattern overlay (inside the map) ----------
-     We cover the full 853×479 area with a faint block mosaic that changes every 5‑min slot.
-     Even at 5% opacity, ~50% of pixels differ each cycle → should exceed a 15% change threshold. */
-  function drawVeil(slot){
-    const cv = document.getElementById('veil'), g = cv.getContext('2d');
-    cv.style.opacity = String(INTENSITY);
-    g.clearRect(0,0,cv.width,cv.height);
-    const rng = lcg(+slot);
-    const cols = CELLS, rows = Math.round(CELLS * (cv.height/cv.width)); // maintain aspect ratio
-    const bw = Math.ceil(cv.width/cols), bh = Math.ceil(cv.height/rows);
-    // Alternate base fill each slot to amplify differences while keeping it faint
-    const invert = ((slot.getMinutes()/5)|0) % 2;
-    g.globalAlpha = 1;
-    g.fillStyle = invert ? '#000' : '#000';
-    for(let r=0;r<rows;r++){
-      for(let c=0;c<cols;c++){
-        if(rng() > 0.5){ g.fillRect(c*bw, r*bh, bw, bh); }
-      }
-    }
+  function applyPolarity(slot){
+    const map = document.getElementById('map');
+    let negate = false;
+    if (INVERT_MODE === 'always') negate = true;
+    else if (INVERT_MODE === 'never') negate = false;
+    else negate = (cycleIndex(slot) % 2) === 1; // toggle by slot
+
+    map.classList.toggle('neg', negate);
+
+    const status = document.getElementById('status');
+    status.textContent = 'Last refresh: ' + fmtSG(nowSG()) + ' — ' + (negate ? 'NEGATIVE' : 'NORMAL');
   }
+
+  function nowSG(){ return new Date(new Date().toLocaleString('en-US',{timeZone:'Asia/Singapore'})); }
 
   /* ---------- main refresh ---------- */
   function update(){
     const now = nowSG();
     let slot = floorTo5(new Date(now));
 
-    // UI text
-    document.getElementById('time').textContent = 'Last refresh: ' + fmtSG(now);
+    // set label
     document.getElementById('rotate').textContent = pickPhrase(Math.floor(slot.getMinutes()/5));
 
-    // Draw faint mosaic inside the map
-    drawVeil(slot);
-
-    // Load latest overlay (with cache buster) and step back if missing (up to 1h)
+    // load radar; after a short delay (to ensure images are in DOM), toggle polarity
     const overlay = document.getElementById('overlay');
     let tries=0;
     function load(){ overlay.src = overlayURL(slot) + '?v=' + Date.now(); }
-    overlay.onload = () => { document.getElementById('ts').textContent = fmtSG(slot); };
+    overlay.onload = () => {
+      document.getElementById('ts').textContent = fmtSG(slot);
+      setTimeout(()=>applyPolarity(slot), DELAY);
+    };
     overlay.onerror = () => {
       if(++tries < 12){ slot = new Date(slot.getTime() - 5*60000); load(); }
-      else { document.getElementById('ts').textContent = 'No recent image'; }
+      else { document.getElementById('ts').textContent = 'No recent image'; setTimeout(()=>applyPolarity(slot), DELAY); }
     };
     load();
+
+    // also write status promptly in case overlay is already cached
+    setTimeout(()=>applyPolarity(slot), DELAY);
   }
 
   update();
