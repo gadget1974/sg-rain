@@ -1,5 +1,5 @@
 <!doctype html><meta charset="utf-8">
-<title>SG Rain 50 km — invert per cycle</title>
+<title>SG Rain 50 km — invert per cycle (SGT‑fixed)</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
@@ -14,7 +14,6 @@
   #badge{position:absolute;top:8px;left:8px;background:#fff9;padding:2px 6px;border-radius:4px;font-size:.75rem}
   #ts{position:absolute;bottom:8px;right:8px;background:#fff9;padding:2px 6px;border-radius:4px;font-size:.8rem}
   #rotate{position:absolute;bottom:8px;left:8px;background:#fff9;padding:2px 6px;border-radius:4px;font-size:.8rem;font-style:italic}
-  /* Negative mode flips all pixels within the map area for maximum diff */
   .neg{ filter: invert(1); }
 </style>
 <div id="wrap">
@@ -28,62 +27,74 @@
   </div>
 </div>
 <script>
-  /* ---------- helpers ---------- */
-  const z=n=>String(n).padStart(2,'0');
+  /* ---------- SGT utilities (UTC-based; no locale parsing) ---------- */
+  const SGT_OFFSET_MS = 8 * 60 * 60 * 1000; // UTC+8
+  function nowUtcMs(){ return Date.now(); }
+  function nowSgDate(){ return new Date(nowUtcMs() + SGT_OFFSET_MS); } // a Date whose UTC fields equal SGT
+  function to5minFloor(sgDate){
+    const d = new Date(sgDate.getTime());
+    const m = d.getUTCMinutes();
+    d.setUTCMinutes(m - (m % 5), 0, 0);
+    return d;
+  }
+  function fmtSgHM(sgDate){
+    const hh = String(sgDate.getUTCHours()).padStart(2,'0');
+    const mm = String(sgDate.getUTCMinutes()).padStart(2,'0');
+    return hh + ':' + mm + ' SGT';
+  }
+  function overlayURL(sgDate){
+    const y = sgDate.getUTCFullYear();
+    const M = String(sgDate.getUTCMonth()+1).padStart(2,'0');
+    const d = String(sgDate.getUTCDate()).padStart(2,'0');
+    const h = String(sgDate.getUTCHours()).padStart(2,'0');
+    const m = String(sgDate.getUTCMinutes()).padStart(2,'0');
+    return `https://www.weather.gov.sg/files/rainarea/50km/v2/dpsri_70km_${y}${M}${d}${h}${m}0000dBR.dpsri.png`;
+  }
+  function cycleIndex(sgDate){ return Math.floor(sgDate.getTime() / (5*60*1000)); }
   const phrases=["Weather Report","Weather Update","Rainfall Chart","Rainfall Map","SG Rain Map"];
+  function pickPhrase(idx){ return phrases[idx%phrases.length]; }
+
+  /* ---------- invert mode options ---------- */
   const qs = new URLSearchParams(location.search);
   const INVERT_MODE = (qs.get('invert')||'toggle').toLowerCase(); // 'toggle' (default) | 'always' | 'never'
-  const DELAY = Math.max(0, Math.min(5000, parseInt(qs.get('delay')||1500,10))); // ms delay before toggling & status write
+  const DELAY = Math.max(0, Math.min(5000, parseInt(qs.get('delay')||1500,10))); // ms delay before applying invert
 
-  function floorTo5(d){ const c=new Date(d); c.setMinutes(c.getMinutes()-c.getMinutes()%5,0,0); return c; }
-  function fmtSG(d){ return d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit',timeZone:'Asia/Singapore'})+' SGT'; }
-  function overlayURL(d){
-    const y=d.getFullYear(),m=z(d.getMonth()+1),day=z(d.getDate()),hh=z(d.getHours()),mm=z(d.getMinutes());
-    return `https://www.weather.gov.sg/files/rainarea/50km/v2/dpsri_70km_${y}${m}${day}${hh}${mm}0000dBR.dpsri.png`;
-  }
-  function pickPhrase(idx){ return phrases[idx%phrases.length]; }
-  function nowSG(){ return new Date(new Date().toLocaleString('en-US',{timeZone:'Asia/Singapore'})); }
-  function cycleIndex(d){ return Math.floor(d.getTime() / (5*60*1000)); } // increments every slot
-
-  function applyPolarity(slot){
+  function applyPolarity(slotSgDate){
     const map = document.getElementById('map');
     let negate = false;
     if (INVERT_MODE === 'always') negate = true;
     else if (INVERT_MODE === 'never') negate = false;
-    else negate = (cycleIndex(slot) % 2) === 1; // toggle by slot
-
+    else negate = (cycleIndex(slotSgDate) % 2) === 1; // toggle by slot
     map.classList.toggle('neg', negate);
 
     const status = document.getElementById('status');
-    status.textContent = 'Last refresh: ' + fmtSG(nowSG()) + ' — ' + (negate ? 'NEGATIVE' : 'NORMAL');
+    status.textContent = 'Last refresh: ' + fmtSgHM(nowSgDate()) + ' — ' + (negate ? 'NEGATIVE' : 'NORMAL');
   }
-
-  function nowSG(){ return new Date(new Date().toLocaleString('en-US',{timeZone:'Asia/Singapore'})); }
 
   /* ---------- main refresh ---------- */
   function update(){
-    const now = nowSG();
-    let slot = floorTo5(new Date(now));
+    const nowSg = nowSgDate();
+    let slotSg = to5minFloor(nowSg);
 
-    // set label
-    document.getElementById('rotate').textContent = pickPhrase(Math.floor(slot.getMinutes()/5));
+    // UI labels
+    document.getElementById('rotate').textContent = pickPhrase(Math.floor(slotSg.getUTCMinutes()/5));
 
-    // load radar; after a short delay (to ensure images are in DOM), toggle polarity
+    // load radar; after a short delay, apply invert so screenshot includes it
     const overlay = document.getElementById('overlay');
     let tries=0;
-    function load(){ overlay.src = overlayURL(slot) + '?v=' + Date.now(); }
+    function load(){ overlay.src = overlayURL(slotSg) + '?v=' + Date.now(); }
     overlay.onload = () => {
-      document.getElementById('ts').textContent = fmtSG(slot);
-      setTimeout(()=>applyPolarity(slot), DELAY);
+      document.getElementById('ts').textContent = fmtSgHM(slotSg);
+      setTimeout(()=>applyPolarity(slotSg), DELAY);
     };
     overlay.onerror = () => {
-      if(++tries < 12){ slot = new Date(slot.getTime() - 5*60000); load(); }
-      else { document.getElementById('ts').textContent = 'No recent image'; setTimeout(()=>applyPolarity(slot), DELAY); }
+      if(++tries < 12){ slotSg = new Date(slotSg.getTime() - 5*60000); load(); }
+      else { document.getElementById('ts').textContent = 'No recent image'; setTimeout(()=>applyPolarity(slotSg), DELAY); }
     };
     load();
 
-    // also write status promptly in case overlay is already cached
-    setTimeout(()=>applyPolarity(slot), DELAY);
+    // also write status soon in case overlay is cached
+    setTimeout(()=>applyPolarity(slotSg), DELAY);
   }
 
   update();
